@@ -7,7 +7,7 @@ This is a simple Discord bot written in Python using the nextcord library. It pr
 1. Clone the repository to your local machine:
 
    ```bash
-   git clone https://github.com/yourusername/DiscordBot.git
+   git clone https://github.com/snowythevulpix/DiscordBot.git
    ```
 
 2. Navigate to the project directory:
