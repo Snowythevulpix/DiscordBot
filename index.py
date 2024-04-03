@@ -1,22 +1,22 @@
 import asyncio
-import discord
-from discord.ext import commands, tasks
-from discord.voice_client import VoiceClient
+import nextcord
+from nextcord.ext import commands
 import yt_dlp as youtube_dl
-from discord.utils import get
-from random import choice
+from nextcord.utils import get
 import datetime
 import re
-from urllib import parse, request
-import openai
+from urllib import request
+import urllib.parse
+import os
 
-
-intents = discord.Intents.default()
+intents = nextcord.Intents.default()
 intents.message_content = True
-openai.api_key = 'Token Chatgpt'
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-status = ['Music!', 'Eating!', 'ZzzzZz!']
+
+class NoMoreTracks(Exception):
+    pass
+
 queue = []
 loop = False
 
@@ -41,7 +41,7 @@ ffmpeg_options = {
 
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
-class YTDLSource(discord.PCMVolumeTransformer):
+class YTDLSource(nextcord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.9):
         super().__init__(source, volume)
 
@@ -60,94 +60,29 @@ class YTDLSource(discord.PCMVolumeTransformer):
             data = data['entries'][0]
 
         filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
-
-
-@bot.command()
-async def ping(ctx):
-    await ctx.send(f'**Pong!** Latency: {round(bot.latency * 1000)}ms')
-
-
-@bot.command()
-async def sum(ctx, numOne: int, numTwo: int):
-    await ctx.send(numOne + numTwo)
-
-
-@bot.command()
-async def div(ctx, numOne: int, numTwo: int):
-    await ctx.send(numOne/numTwo)
-
-
-@bot.command()
-async def prod(ctx, numOne: int, numTwo: int):
-    await ctx.send(numOne*numTwo)
-
-
-@bot.command()
-async def hello(ctx):
-    author = ctx.message.author
-    await ctx.send(f'Hello, {author.mention}!')
-
-
-@bot.command()
-async def info(ctx):
-    embed = discord.Embed(title=f"{ctx.guild.name}", description="Lorem Ipsum asdasd",
-                          timestamp=datetime.datetime.utcnow(), color=discord.Color.blue())
-    embed.add_field(name="Server created at", value=f"{ctx.guild.created_at}")
-    embed.add_field(name="Server Owner", value=f"{ctx.guild.owner}")
-    embed.add_field(name="Server ID", value=f"{ctx.guild.id}")
-    # embed.set_thumbnail(url=f"{ctx.guild.icon}")
-    embed.set_thumbnail(
-        url="https://pluralsight.imgix.net/paths/python-7be70baaac.png")
-
-    await ctx.send(embed=embed)
-
+        return cls(nextcord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
 
 @bot.command()
 async def p(ctx, *, search):
-    query_string = parse.urlencode({'search_query': search})
+    query_string = urllib.parse.urlencode({'search_query': search})
     html_content = request.urlopen(
         'http://www.youtube.com/results?' + query_string)
-    # print(html_content.read().decode())
     search_results = re.findall(
         'watch\?v=(.{11})', html_content.read().decode('utf-8'))
-    # I will put just the first result, you can loop the response to show more results
     url = ('https://www.youtube.com/watch?v=' + search_results[0])
     await ctx.send('https://www.youtube.com/watch?v=' + search_results[0])
     await join(ctx)
     await queue_(ctx, url)
     await play(ctx)
 
-
 @bot.command(pass_context=True)
 async def join(ctx):
-    canal = ctx.message.author.voice.channel
-    voz = get(bot.voice_clients, guild=ctx.guild)
-    if voz and voz.is_connected():
-        await voz.move_to(canal)
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_connected():
+        await voice.move_to(channel)
     else:
-        voz = await canal.connect()
-
-
-@bot.command(pass_context=True)
-async def exit(ctx):
-    canal = ctx.message.author.voice.channel
-    voz = get(bot.voice_clients, guild=ctx.guild)
-    await voz.disconnect()
-
-
-@bot.command(name='loop', help='This command toggles loop mode')
-async def loop_(ctx):
-    global loop
-
-    if loop:
-        await ctx.send('Loop mode is now `False!`')
-        loop = False
-
-    else:
-        await ctx.send('Loop mode is now `True!`')
-        loop = True
-
+        voice = await channel.connect()
 
 @bot.command(pass_context=True)
 async def play(ctx):
@@ -156,10 +91,8 @@ async def play(ctx):
     if not ctx.message.author.voice:
         await ctx.send("You are not connected to a voice channel")
         return
-
     elif len(queue) == 0:
         await ctx.send('Nothing in your queue! Use `!p` to add a song!')
-
     else:
         try:
             channel = ctx.message.author.voice.channel
@@ -174,7 +107,6 @@ async def play(ctx):
             while voice_channel.is_playing() or voice_channel.is_paused():
                 await asyncio.sleep(2)
                 pass
-
         except AttributeError:
             pass
 
@@ -191,63 +123,44 @@ async def play(ctx):
         except:
             break
 
-
-
 @bot.command()
 async def queue_(ctx, url):
     global queue
-
     queue.append(url)
     await ctx.send(f'`{url}` added to queue!')
 
-
-@bot.command()
-async def remove(ctx, number):
-    global queue
-
-    try:
-        del (queue[int(number)])
-        await ctx.send(f'Your queue is now `{queue}!`')
-
-    except:
-        await ctx.send('Your queue is either **empty** or the index is **out of range**')
-
-
 @bot.command(pass_context=True)
 async def pause(ctx):
-    voz = get(bot.voice_clients, guild=ctx.guild)
-    if voz and voz.is_playing():
-        print("Musica pausada")
-        voz.pause()
-        await ctx.send("Musica Pausada")
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_playing():
+        print("Music paused")
+        voice.pause()
+        await ctx.send("Music Paused")
     else:
-        print("No se esta Reproduciendo,Pausa erronea")
-        await ctx.send("Pausa Erronea, no se esta Reproduciendo")
-
+        print("Not playing, pause failed")
+        await ctx.send("Pause Failed, not playing")
 
 @bot.command(pass_context=True)
 async def resume(ctx):
-    voz = get(bot.voice_clients, guild=ctx.guild)
-    if voz and voz.is_paused():
-        print("Reproduciendo Nuevamente")
-        voz.resume()
-        await ctx.send("Reproduciendo Nuevamente")
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_paused():
+        print("Resuming Playback")
+        voice.resume()
+        await ctx.send("Resuming Playback")
     else:
-        print("No se encuentra pausada")
-        await ctx.send("No se encuentra pausada")
-
+        print("Not paused")
+        await ctx.send("Not paused")
 
 @bot.command(pass_context=True)
 async def stop(ctx):
-    voz = get(bot.voice_clients, guild=ctx.guild)
-    if voz and voz.is_playing():
-        print("Musica detenida")
-        voz.stop()
-        await ctx.send("Musica detenida")
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_playing():
+        print("Music stopped")
+        voice.stop()
+        await ctx.send("Music stopped")
     else:
-        print("No se esta reproduciendo")
-        await ctx.send("No se esta reproduciendo")
-
+        print("Not playing")
+        await ctx.send("Not playing")
 
 @bot.command()
 async def volume(ctx, volume: int):
@@ -255,81 +168,14 @@ async def volume(ctx, volume: int):
         return await ctx.send("Not connected to a voice channel.")
 
     ctx.voice_client.source.volume = volume / 100
-    await ctx.send(f"Volume cambiado a {volume}%")
-
-
-class NoMoreTracks(Exception):
-    pass
-
+    await ctx.send(f"Volume changed to {volume}%")
 
 @bot.command()
 async def next(ctx):
-    voz = get(bot.voice_clients, guild=ctx.guild)
-
-    if not voz.is_playing():
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if not voice.is_playing():
         raise NoMoreTracks
+    voice.stop()
+    await ctx.send("Next song")
 
-    voz.stop()
-    await ctx.send("Siguiente cancion")
-
-
-@bot.command()
-async def coinflip(ctx):
-    if choice(["cara", "cruz"]) == "cara":
-        await ctx.send("Salió cara! :orange_circle:")
-    else:
-        await ctx.send("Salió cruz! :yellow_circle:")
-
-
-@bot.command()
-async def clear(ctx, amount=10000):
-    await ctx.channel.purge(limit=amount)
-    await ctx.send("Messages have been cleared")
-
-
-@bot.command()
-async def view(ctx):
-    await ctx.send(f' `{queue}` agregada a la lista')
-
-
-# Events
-@bot.event
-async def on_ready():
-    await bot.change_presence(activity=discord.Game(choice(status)))
-    print('Estoy en linea my friend')
-
-@tasks.loop(seconds=20)
-async def change_status():
-    await bot.change_presence(activity=discord.Game(choice(status)))
-
-
-@bot.event
-async def on_member_join(member):
-    await member.create_dm()
-    await member.dm_channel.send(
-        f'Hi {member.name}, Welcome to Chofus!'
-    )
-
-
-#CHAT GPT
-@bot.command()
-async def chat(ctx, *, message: str):
-    # Limpia el mensaje de cualquier ruido y detención de palabras
-    message = message.lower()
-
-    # Envía el mensaje al modelo de GPT-3 y obtén la respuesta
-    response = openai.Completion.create(model="text-davinci-002", prompt=message, max_tokens=2032, n=1, stop=None, temperature=0.2)
-
-
-    # Filtra la respuesta para asegurarse de que sea coherente
-    answer = re.sub('[^A-Za-z0-9áéíóúñ¿?¡!.,;: ]+', '', response.choices[0].text)
-    if len(answer) > 2000:
-        answer = answer[:2000] # Limita la respuesta a los primeros 2000 caracteres
-
-    # Envía la respuesta al canal de Discord
-    await ctx.send(answer)
-
-
-
-
-bot.run('Token Discord')
+bot.run("your bot's token")
