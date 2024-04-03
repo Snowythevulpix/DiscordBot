@@ -1,6 +1,6 @@
 # DiscordBot
 
-This is a simple Discord bot written in Python using the nextcord library. It provides various commands including music playback, chat with GPT-3, and more.
+This is a simple Discord bot written in Python using the nextcord library. has music playback with youtube
 
 ## Installation
 
